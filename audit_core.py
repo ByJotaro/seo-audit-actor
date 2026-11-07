@@ -12,7 +12,7 @@ import sys
 import time
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from html import escape as _esc
 
 OUT = Path(__file__).parent / "out"
@@ -283,6 +283,7 @@ def audit(url):
     R["assets"] = (n_js + n_css <= 25, f"js={n_js} css={n_css}")
 
     # --- anchors ---
+    internal_links = []
     if soup:
         links = soup.find_all("a")
         bad = 0
@@ -291,6 +292,21 @@ def audit(url):
             if not txt and not a.get("aria-label") and not a.get("title") and not a.find("img"):
                 bad += 1
         R["anchors"] = (bad == 0 or not links, f"links={len(links)} empty={bad}")
+        seen_links = set()
+        for a in links:
+            href = (a.get("href") or "").strip()
+            if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                continue
+            absu = urljoin(url, href).split("#")[0]
+            p = urlparse(absu)
+            if p.scheme not in ("http", "https") or p.netloc != dom:
+                continue
+            if absu in seen_links:
+                continue
+            seen_links.add(absu)
+            internal_links.append(absu)
+            if len(internal_links) >= 200:
+                break
     else:
         R["anchors"] = (True, "n/a (regex mode)")
 
@@ -310,7 +326,7 @@ def audit(url):
                       "detail": R[cid][1], "rec": rec})
 
     return {"url": url, "dom": dom, "status": status, "ms": ms, "kb": kb,
-            "score": score, "got_w": got_w, "total_w": total_w,
+            "score": score, "got_w": got_w, "total_w": total_w, "links": internal_links,
             "results": [(c[0], c[1], c[2], c[3], R[c[0]][0], R[c[0]][1]) for c in CHECKS_META],
             "fixes": fixes}
 

@@ -3,8 +3,10 @@
 Technical SEO audit for any URL: a weighted **0-100 score**, **25 checks**, and a **fix list** with severity (`critical` / `high` / `medium` / `low`) and effort labels (`S` / `M`).
 
 No API keys, no headless browser, no proxies. One URL in — a structured audit out.
+Set `maxPages` above 1 to crawl a site and score every page.
 
-**Live on the Apify Store:** https://apify.com/by_jotaro/seo-audit-report
+**Live on the Apify Store:** https://apify.com/by_jotaro/seo-audit-report  
+**Source code:** https://github.com/ByJotaro/seo-audit-actor (MIT)
 
 ```bash
 curl -X POST "https://api.apify.com/v2/acts/by_jotaro~seo-audit-report/run-sync-get-dataset-items?token=YOUR_TOKEN" \
@@ -16,7 +18,7 @@ curl -X POST "https://api.apify.com/v2/acts/by_jotaro~seo-audit-report/run-sync-
 
 - **Dataset item per URL**: `score`, `grade`, `status`, `responseMs`, `htmlKb`, `checks[]`, `fixes[]`
 - **Key-value store**: `report-<domain>-<ts>` (HTML report) and `report-<domain>-<ts>.md` (Markdown)
-- **SUMMARY** key with all URLs and scores
+- **SUMMARY** key with all URLs and scores; in crawl mode it also carries a site summary (average/min/max score, worst page, top issues by page count)
 
 ## Checks (25)
 
@@ -30,9 +32,15 @@ curl -X POST "https://api.apify.com/v2/acts/by_jotaro~seo-audit-report/run-sync-
 
 ```json
 {
-  "urls": ["https://example.com", "https://example.com/pricing"]
+  "urls": ["https://example.com"],
+  "maxPages": 1,
+  "sameDomainOnly": true
 }
 ```
+
+- `urls` — pages to audit (or crawl starts).
+- `maxPages` — `1` audits only the given URLs; `> 1` follows internal links of each start URL until this many pages are audited (max 50).
+- `sameDomainOnly` — when crawling, stay on the start URL's host.
 
 ## Output example
 

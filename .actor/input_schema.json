@@ -8,9 +8,29 @@
       "type": "array",
       "description": "One or more pages to audit (https://example.com). Each URL costs one audit.",
       "editor": "stringList",
-      "prefill": ["https://example.com"],
-      "items": {"type": "string"}
+      "prefill": [
+        "https://example.com"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "maxPages": {
+      "title": "Max pages to crawl",
+      "type": "integer",
+      "description": "1 = audit only the given URLs. Above 1 = follow internal links of each start URL (same domain) until this many pages are audited. Max 50.",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 50
+    },
+    "sameDomainOnly": {
+      "title": "Stay on the same domain when crawling",
+      "type": "boolean",
+      "description": "When crawling (maxPages > 1), follow only links on the start URL's host.",
+      "default": true
     }
   },
-  "required": ["urls"]
+  "required": [
+    "urls"
+  ]
 }
