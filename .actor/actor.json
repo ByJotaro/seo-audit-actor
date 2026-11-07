@@ -1,0 +1,15 @@
+{
+  "actorSpecification": 1,
+  "name": "seo-audit-report",
+  "title": "SEO Audit Report - 25 checks, score and fixes",
+  "description": "Crawl any URL and get a technical SEO audit: weighted 0-100 score, 25 checks, severity-ranked fixes with effort labels, Markdown + HTML report.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "dockerfile": "../Dockerfile",
+  "input": "./input_schema.json",
+  "readme": "../README.md",
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  },
+  "output": "./output_schema.json"
+}

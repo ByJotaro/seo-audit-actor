@@ -1,0 +1,23 @@
+{
+  "actorSpecification": 1,
+  "title": "SEO audit results",
+  "fields": {},
+  "views": {
+    "overview": {
+      "title": "Overview",
+      "transformation": {
+        "fields": ["url", "score", "grade", "status", "fixes"]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "url": {"label": "URL", "format": "text"},
+          "score": {"label": "Score", "format": "number"},
+          "grade": {"label": "Grade", "format": "text"},
+          "status": {"label": "HTTP", "format": "number"},
+          "fixes": {"label": "Fixes", "format": "array"}
+        }
+      }
+    }
+  }
+}

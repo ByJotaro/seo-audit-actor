@@ -1,0 +1,16 @@
+{
+  "title": "SEO Audit Report input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "urls": {
+      "title": "URLs to audit",
+      "type": "array",
+      "description": "One or more pages to audit (https://example.com). Each URL costs one audit.",
+      "editor": "stringList",
+      "prefill": ["https://example.com"],
+      "items": {"type": "string"}
+    }
+  },
+  "required": ["urls"]
+}
