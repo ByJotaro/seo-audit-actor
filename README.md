@@ -16,7 +16,7 @@ curl -X POST "https://api.apify.com/v2/acts/by_jotaro~seo-audit-report/run-sync-
 
 ## What you get
 
-- **Dataset item per URL**: `score`, `grade`, `status`, `responseMs`, `htmlKb`, `checks[]`, `fixes[]`
+- **Dataset item per page**: `url`, `finalUrl` (after redirects), `score`, `grade`, `status`, `responseMs`, `htmlKb`, `checks[]`, `fixes[]`
 - **Key-value store**: `report-<domain>-<ts>` (HTML report) and `report-<domain>-<ts>.md` (Markdown)
 - **SUMMARY** key with all URLs and scores; in crawl mode it also carries a site summary (average/min/max score, worst page, top issues by page count)
 
@@ -83,8 +83,8 @@ apify push
 ## Limits
 
 - Audits the server-rendered HTML (SPAs are analyzed as delivered, without JS execution).
-- One HTTP request per URL (redirects followed); no crawling of internal links.
-- Respects the target site's robots and rate limits — use it on sites you own or may audit.
+- One HTTP request per page (redirects followed; the crawl follows the redirect target's host).
+- Crawl mode (`maxPages > 1`) honors `robots.txt` `Disallow` rules for the `*` user-agent and the `Crawl-delay` directive (capped at 5 s). Disallowed links are skipped and counted in the site summary (`skippedByRobots`).
 
 ## License
 

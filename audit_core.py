@@ -104,17 +104,17 @@ def fetch(url):
             except Exception:
                 html = r.text
             hdr = {k.lower(): v for k, v in r.headers.items()}
-            return html, r.status_code, ms, hdr
+            return html, r.status_code, ms, hdr, (r.url or url)
         except Exception as e:
-            return "", 0, 0, {"error": str(e)}
+            return "", 0, 0, {"error": str(e)}, url
     import urllib.request
     try:
         req = urllib.request.Request(url, headers=UA)
         with urllib.request.urlopen(req, timeout=20) as r:
             html = r.read().decode("utf-8", "ignore")
-            return html, r.status, round((time.time() - t0) * 1000), dict(r.headers)
+            return html, r.status, round((time.time() - t0) * 1000), dict(r.headers), (r.geturl() or url)
     except Exception as e:
-        return "", 0, 0, {"error": str(e)}
+        return "", 0, 0, {"error": str(e)}, url
 
 
 def tiny_get(url, limit=6000):
@@ -144,8 +144,8 @@ def _soup(html):
 
 
 def audit(url):
-    html, status, ms, hdr = fetch(url)
-    dom = urlparse(url).netloc or urlparse("https://" + url).netloc
+    html, status, ms, hdr, final_url = fetch(url)
+    dom = urlparse(final_url).netloc or urlparse("https://" + url).netloc
     low = html.lower()
     soup = _soup(html)
     R = {}  # id -> (ok, detail)
@@ -154,7 +154,7 @@ def audit(url):
         return re.search(pat, html, flags)
 
     R["http200"] = (status == 200, f"status={status} time={ms}ms")
-    R["https"] = (url.startswith("https"), "")
+    R["https"] = (final_url.startswith("https"), "")
 
     # --- noindex ---
     noindex = False
@@ -297,7 +297,7 @@ def audit(url):
             href = (a.get("href") or "").strip()
             if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
                 continue
-            absu = urljoin(url, href).split("#")[0]
+            absu = urljoin(final_url, href).split("#")[0]
             p = urlparse(absu)
             if p.scheme not in ("http", "https") or p.netloc != dom:
                 continue
@@ -325,7 +325,7 @@ def audit(url):
         fixes.append({"id": cid, "name": name, "sev": sev, "effort": eff,
                       "detail": R[cid][1], "rec": rec})
 
-    return {"url": url, "dom": dom, "status": status, "ms": ms, "kb": kb,
+    return {"url": url, "final_url": final_url, "dom": dom, "status": status, "ms": ms, "kb": kb,
             "score": score, "got_w": got_w, "total_w": total_w, "links": internal_links,
             "results": [(c[0], c[1], c[2], c[3], R[c[0]][0], R[c[0]][1]) for c in CHECKS_META],
             "fixes": fixes}

@@ -14,6 +14,7 @@ Runs on Apify (apify SDK) and locally:
 """
 import asyncio
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -22,7 +23,7 @@ from urllib.parse import urlparse
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from audit_core import audit, grade, render_md, render_html  # noqa: E402
+from audit_core import audit, fetch, grade, render_md, render_html  # noqa: E402
 
 try:
     from apify import Actor  # type: ignore
@@ -32,6 +33,70 @@ except Exception:
     HAVE_APIFY = False
 
 MAX_PAGES_LIMIT = 50
+
+
+ROBOTS_CACHE = {}
+
+
+def parse_robots(text):
+    """Minimal robots.txt parser for the '*' user-agent group.
+
+    -> (disallow_prefixes, crawl_delay_seconds or None)
+    """
+    disallow = []
+    delay = None
+    current = None
+    for raw in (text or "").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        key = key.strip().lower()
+        val = val.strip()
+        if key == "user-agent":
+            current = val.lower()
+        elif current == "*" and key == "disallow" and val:
+            disallow.append(val)
+        elif current == "*" and key == "crawl-delay":
+            try:
+                delay = float(val)
+            except ValueError:
+                pass
+    return disallow, delay
+
+
+def robots_for(origin):
+    """Fetch and cache robots.txt rules for an origin."""
+    if origin in ROBOTS_CACHE:
+        return ROBOTS_CACHE[origin]
+    try:
+        body, status, _, _, _ = fetch(origin + "/robots.txt")
+        rules = parse_robots(body) if status == 200 else ([], None)
+    except Exception:
+        rules = ([], None)
+    ROBOTS_CACHE[origin] = rules
+    return rules
+
+
+def robots_allowed(path, disallow):
+    """Prefix/wildcard match of a URL path against robots Disallow rules."""
+    path = path or "/"
+    for rule in disallow:
+        pattern = "^" + re.escape(rule).replace(r"\*", ".*")
+        if rule.endswith("$"):
+            pattern = pattern[:-1] + "$"
+        try:
+            if re.match(pattern, path):
+                return False
+        except re.error:
+            if path.startswith(rule):
+                return False
+    return True
+
+
+def origin_of(url):
+    p = urlparse(url)
+    return f"{p.scheme}://{p.netloc}"
 
 
 def normalize_urls(raw):
@@ -53,6 +118,7 @@ def run_one(url: str):
     res = audit(url)
     item = {
         "url": res["url"],
+        "finalUrl": res.get("final_url", res["url"]),
         "domain": res["dom"],
         "status": res["status"],
         "responseMs": res["ms"],
@@ -73,12 +139,17 @@ def run_one(url: str):
 
 
 def crawl(start: str, max_pages: int, same_domain: bool = True, delay: float = 0.2):
-    """BFS over internal links. -> list of (item, html_report) plus errors."""
+    """BFS over internal links, honoring robots.txt. -> pages, errors, stats."""
     host = urlparse(start).netloc
+    disallow, crawl_delay = robots_for(origin_of(start))
+    step = max(delay, min(crawl_delay or 0, 5.0))
     queue = [start]
     seen = set()
+    seen_final = set()
     pages = []
     errors = []
+    skipped = 0
+    first = True
     while queue and len(pages) < max_pages:
         u = queue.pop(0)
         if u in seen:
@@ -89,7 +160,20 @@ def crawl(start: str, max_pages: int, same_domain: bool = True, delay: float = 0
         except Exception as e:  # keep the crawl alive on a single bad page
             errors.append({"url": u, "error": str(e)[:300]})
             continue
+        final_u = item.get("finalUrl") or u
+        if final_u in seen_final:  # same page reached through a redirect alias
+            continue
+        seen_final.add(final_u)
+        seen.add(final_u)
         pages.append((item, html_report))
+        if first:
+            # the start URL may redirect to another host (python.org -> www.python.org)
+            first = False
+            final_host = urlparse(item.get("finalUrl") or u).netloc
+            if final_host and final_host != host:
+                host = final_host
+                disallow, crawl_delay = robots_for(origin_of(item["finalUrl"]))
+                step = max(delay, min(crawl_delay or 0, 5.0))
         if len(pages) >= max_pages:
             break
         for link in links:
@@ -97,10 +181,13 @@ def crawl(start: str, max_pages: int, same_domain: bool = True, delay: float = 0
                 continue
             if same_domain and urlparse(link).netloc != host:
                 continue
+            if not robots_allowed(urlparse(link).path, disallow):
+                skipped += 1
+                continue
             queue.append(link)
-        if delay:
-            time.sleep(delay)
-    return pages, errors
+        if step:
+            time.sleep(step)
+    return pages, errors, {"skippedByRobots": skipped}
 
 
 def process_start(start, max_pages, same_domain=True):
@@ -109,9 +196,9 @@ def process_start(start, max_pages, same_domain=True):
         return crawl(start, max_pages, same_domain)
     try:
         item, html_report, _ = run_one(start)
-        return [(item, html_report)], []
+        return [(item, html_report)], [], {"skippedByRobots": 0}
     except Exception as e:
-        return [], [{"url": start, "error": str(e)[:300]}]
+        return [], [{"url": start, "error": str(e)[:300]}], {"skippedByRobots": 0}
 
 
 def site_summary(start, pages, errors):
@@ -167,7 +254,7 @@ def local_main() -> int:
 
     out = []
     for u in urls:
-        pages, errors = process_start(u, max_pages)
+        pages, errors, stats = process_start(u, max_pages)
         for item, _ in pages:
             md = item.pop("markdown", "")
             out.append(item)
@@ -177,7 +264,9 @@ def local_main() -> int:
         for e in errors:
             print(json.dumps(e, ensure_ascii=False))
         if max_pages > 1:
-            print(json.dumps(site_summary(u, pages, errors), ensure_ascii=False))
+            summary = site_summary(u, pages, errors)
+            summary.update(stats)
+            print(json.dumps(summary, ensure_ascii=False))
     Path("last_run.json").write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     return 0
 
@@ -198,7 +287,7 @@ async def apify_main() -> int:
 
         results = []
         for u in urls:
-            pages, errors = process_start(u, max_pages, same_domain)
+            pages, errors, stats = process_start(u, max_pages, same_domain)
             for idx, (item, html_report) in enumerate(pages, 1):
                 md = item.pop("markdown", "")
                 await Actor.push_data(item)
@@ -216,7 +305,9 @@ async def apify_main() -> int:
             for e in errors:
                 results.append(e)
             if max_pages > 1:
-                results.append({"siteSummary": site_summary(u, pages, errors)})
+                summary = site_summary(u, pages, errors)
+                summary.update(stats)
+                results.append({"siteSummary": summary})
         await Actor.set_value("SUMMARY", json.dumps(results, indent=2),
                               content_type="application/json")
     return 0
